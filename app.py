@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit as st 
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
@@ -7,7 +7,6 @@ from string import ascii_uppercase
 import io
 
 # === CONFIG ===
-top2_values = [4, 5]
 confidence_z_90 = 1.645  # for 90% confidence
 confidence_z_80 = 0.84   # for 80% confidence
 
@@ -29,15 +28,15 @@ if uploaded_file:
     breakout_cols = [col for col in df.columns if col.lower().startswith("breakout")]
     attributes = [col for col in df.columns[3:-1] if col not in breakout_cols]
 
-    def calculate_table(data, concepts, attributes, show_80_confidence):
+    def calculate_table(data, concepts, attributes, bucket_values, show_80_confidence):
         result_rows = []
         for attr in attributes:
             attr_result = {}
             for concept in concepts:
                 scores = data[data['Concept'] == concept][attr].dropna()
                 base = len(scores)
-                t2b = scores.isin(top2_values).sum()
-                pct = (t2b / base) * 100 if base > 0 else np.nan
+                selected = scores.isin(bucket_values).sum()
+                pct = (selected / base) * 100 if base > 0 else np.nan
                 attr_result[concept] = {"percent": pct, "base": base}
 
             row_data = {}
@@ -76,56 +75,63 @@ if uploaded_file:
             result_rows.append(row_data)
         return result_rows
 
-    # === STEP 1: REP (Total Sample)
-    rep_rows = calculate_table(df, concepts, attributes, show_80_confidence)
-    all_rows = []
-    attribute_labels = []
-    group_labels = []
+    def build_output_df(df, concepts, attributes, bucket_values, show_80_confidence):
+        all_rows = []
+        attribute_labels = []
+        group_labels = []
 
-    rep_bases = [len(df[df['Concept'] == concept]) for concept in concepts]
-    rep_n = int(np.round(np.mean(rep_bases)))
+        rep_rows = calculate_table(df, concepts, attributes, bucket_values, show_80_confidence)
+        rep_bases = [len(df[df['Concept'] == concept]) for concept in concepts]
+        rep_n = int(np.round(np.mean(rep_bases)))
 
-    for attr, row in zip(attributes, rep_rows):
-        all_rows.append(row)
-        attribute_labels.append(attr)
-        group_labels.append(f"REP [n={rep_n}]")
+        for attr, row in zip(attributes, rep_rows):
+            all_rows.append(row)
+            attribute_labels.append(attr)
+            group_labels.append(f"REP [n={rep_n}]")
 
-    # === STEP 2: Breakout Groups
-    seen_groups = set()
+        seen_groups = set()
+        for breakout in breakout_cols:
+            for group_value in df[breakout].dropna().unique():
+                if group_value in seen_groups:
+                    continue
+                seen_groups.add(group_value)
 
-    for breakout in breakout_cols:
-        for group_value in df[breakout].dropna().unique():
-            if group_value in seen_groups:
-                continue
-            seen_groups.add(group_value)
+                group_df = df[df[breakout] == group_value]
+                group_bases = [len(group_df[group_df['Concept'] == concept]) for concept in concepts]
+                group_n = int(np.round(np.mean(group_bases)))
 
-            group_df = df[df[breakout] == group_value]
-            group_bases = [len(group_df[group_df['Concept'] == concept]) for concept in concepts]
-            group_n = int(np.round(np.mean(group_bases)))
+                group_rows = calculate_table(group_df, concepts, attributes, bucket_values, show_80_confidence)
+                for attr, row in zip(attributes, group_rows):
+                    all_rows.append(row)
+                    attribute_labels.append(attr)
+                    group_labels.append(f"{group_value} [n={group_n}]")
 
-            group_rows = calculate_table(group_df, concepts, attributes, show_80_confidence)
-            for attr, row in zip(attributes, group_rows):
-                all_rows.append(row)
-                attribute_labels.append(attr)
-                group_labels.append(f"{group_value} [n={group_n}]")
+        final_df = pd.DataFrame(all_rows)
+        final_df.insert(0, "Group", group_labels)
+        final_df.insert(0, "Attribute", attribute_labels)
 
-    # === FINAL TABLE
-    final_df = pd.DataFrame(all_rows)
-    final_df.insert(0, "Group", group_labels)
-    final_df.insert(0, "Attribute", attribute_labels)
-    final_df = final_df[["Attribute", "Group"] + list(concepts)]
+        concept_labels = {concept: f"{ascii_uppercase[i]}. {concept}" for i, concept in enumerate(concepts)}
+        renamed_columns = ["Attribute", "Group"] + [concept_labels[c] for c in concepts]
+        final_df.columns = renamed_columns
+        return final_df
+
+    # === Build Both Sheets
+    t2b_df = build_output_df(df, concepts, attributes, [4, 5], show_80_confidence)
+    t1b_df = build_output_df(df, concepts, attributes, [5], show_80_confidence)
 
     st.success("✅ Significance testing completed!")
-    st.dataframe(final_df)
+    st.write("### 📊 T2B Analysis")
+    st.dataframe(t2b_df)
 
     # === DOWNLOAD BUTTON
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        final_df.to_excel(writer, index=False, sheet_name='Significance')
+        t2b_df.to_excel(writer, index=False, sheet_name='T2B Analysis')
+        t1b_df.to_excel(writer, index=False, sheet_name='T1B Analysis')
     output.seek(0)
 
     st.download_button(
-        label="📥 Download Excel",
+        label="📥 Download Excel with T2B + T1B",
         data=output,
         file_name="Significance_Results.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
