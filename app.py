@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.stats import norm, ttest_rel, ttest_ind
+from scipy.stats import norm, ttest_rel, ttest_ind, f_oneway
 import re
 from string import ascii_uppercase
 import io
@@ -60,11 +60,10 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
-    # Rename unique ID column if it exists
     if 'ID' in df.columns:
         df = df.rename(columns={'ID': 'Respondent'})
-    elif test_design == "Paired Samples":
-        st.error("❌ Your file must contain a unique ID column named 'ID' for paired sample testing.")
+    elif test_design in ["Paired Samples", "Within-Subjects (Repeated Measures)"]:
+        st.error("❌ Your file must contain a unique ID column named 'ID' for paired or within-subjects testing.")
         st.stop()
 
     df['Concept_num'] = df['Concept'].str.extract(r'Concept (\d+)').astype(float)
@@ -74,87 +73,73 @@ if uploaded_file:
     breakout_cols = [col for col in df.columns if col.lower().startswith("breakout")]
     attributes = [col for col in df.columns[3:-1] if col not in breakout_cols]
 
-    def calculate_ztest_table(data, concepts, attributes, bucket_values):
+    def calculate_significance(data, concepts, attributes, method="ztest", bucket_values=None):
         result_rows = []
-        for attr in attributes:
-            attr_result = {}
-            for concept in concepts:
-                scores = data[data['Concept'] == concept][attr].dropna()
-                base = len(scores)
-                selected = scores.isin(bucket_values).sum()
-                pct = (selected / base) * 100 if base > 0 else np.nan
-                attr_result[concept] = {"percent": pct, "base": base}
+        pivot = None
+        if method in ["paired", "within"]:
+            pivot = data.pivot_table(index='Respondent', columns='Concept', values=attributes)
 
+        for attr in attributes:
             row_data = {}
+            stats = {}
             for c1 in concepts:
-                p1 = attr_result[c1]['percent']
-                n1 = attr_result[c1]['base']
+                if method == "ztest":
+                    scores = data[data['Concept'] == c1][attr].dropna()
+                    base = len(scores)
+                    pct = scores.isin(bucket_values).sum() / base * 100 if base > 0 else np.nan
+                    stats[c1] = (pct, base)
+                else:
+                    scores = pivot[attr][c1]
+                    stats[c1] = scores
+
+            for c1 in concepts:
                 better_than = []
                 for c2 in concepts:
                     if c1 == c2:
                         continue
-                    p2 = attr_result[c2]['percent']
-                    n2 = attr_result[c2]['base']
-                    if n1 == 0 or n2 == 0:
-                        continue
-                    p1_p = p1 / 100
-                    p2_p = p2 / 100
-                    se = np.sqrt((p1_p * (1 - p1_p) / n1) + (p2_p * (1 - p2_p) / n2))
-                    if se == 0:
-                        continue
-                    z = (p1_p - p2_p) / se
-                    match = re.search(r'Concept (\d+)', c2)
-                    if match:
-                        letter = ascii_uppercase[int(match.group(1)) - 1]
-                        if z > confidence_z_90:
-                            better_than.append(letter)
-                        elif show_80_confidence and z > confidence_z_80:
-                            better_than.append(letter.lower())
-
-                label = "NA" if pd.isna(p1) else f"{round(p1)}%" + (f" {', '.join(better_than)}" if better_than else "")
-                row_data[c1] = label
-
-            result_rows.append(row_data)
-        return result_rows
-
-    def calculate_paired_ttest(data, concepts, attributes):
-        result_rows = []
-        pivot = data.pivot_table(index='Respondent', columns='Concept', values=attributes)
-
-        for attr in attributes:
-            row_data = {}
-            for c1 in concepts:
-                scores1 = pivot[attr][c1]
-                label = "NA"
-                better_than = []
-                for c2 in concepts:
-                    if c1 == c2:
-                        continue
-                    scores2 = pivot[attr][c2]
-                    paired = pd.DataFrame({"c1": scores1, "c2": scores2}).dropna()
-                    if len(paired) > 1:
-                        t_stat, p_value = ttest_rel(paired['c1'], paired['c2'])
+                    if method == "ztest":
+                        p1, n1 = stats[c1]
+                        p2, n2 = stats[c2]
+                        if n1 == 0 or n2 == 0:
+                            continue
+                        se = np.sqrt((p1 / 100 * (1 - p1 / 100) / n1) + (p2 / 100 * (1 - p2 / 100) / n2))
+                        if se == 0:
+                            continue
+                        z = (p1 - p2) / se
                         match = re.search(r'Concept (\d+)', c2)
                         if match:
                             letter = ascii_uppercase[int(match.group(1)) - 1]
-                            if p_value < 0.1:
+                            if z > confidence_z_90:
+                                better_than.append(letter)
+                            elif show_80_confidence and z > confidence_z_80:
                                 better_than.append(letter.lower())
-                            if p_value < 0.05:
-                                better_than[-1] = letter
-                if scores1.count() > 0:
-                    label = f"{scores1.mean():.2f}" + (f" {', '.join(better_than)}" if better_than else "")
+                    else:
+                        paired = pd.DataFrame({"c1": stats[c1], "c2": stats[c2]}).dropna()
+                        if len(paired) > 1:
+                            t_stat, p_value = ttest_rel(paired['c1'], paired['c2'])
+                            match = re.search(r'Concept (\d+)', c2)
+                            if match:
+                                letter = ascii_uppercase[int(match.group(1)) - 1]
+                                if p_value < 0.1:
+                                    better_than.append(letter.lower())
+                                if p_value < 0.05:
+                                    better_than[-1] = letter
+
+                if method == "ztest":
+                    val = round(stats[c1][0])
+                    label = f"{val}%" + (f" {', '.join(better_than)}" if better_than else "")
+                else:
+                    scores = stats[c1]
+                    label = f"{scores.mean():.2f}" + (f" {', '.join(better_than)}" if better_than else "") if scores.count() > 0 else "NA"
                 row_data[c1] = label
+
             result_rows.append(row_data)
         return result_rows
 
     def build_output_df(data, concepts, attributes, method, bucket_values=None):
         all_rows, attribute_labels, group_labels = [], [], []
 
-        if method == "ztest":
-            rep_rows = calculate_ztest_table(data, concepts, attributes, bucket_values)
-        elif method == "paired":
-            rep_rows = calculate_paired_ttest(data, concepts, attributes)
-
+        rep_rows = calculate_significance(data, concepts, attributes, method, bucket_values)
         rep_bases = [len(data[data['Concept'] == concept]) for concept in concepts]
         rep_n = int(np.round(np.mean(rep_bases)))
 
@@ -170,18 +155,19 @@ if uploaded_file:
         final_df.columns = ["Attribute", "Group"] + [concept_labels[c] for c in concepts]
         return final_df
 
+    # === RUN TEST ===
     if test_design == "Independent Samples (default)":
-        t2b_df = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[4, 5])
-        t1b_df = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[5])
+        df_t2b = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[4, 5])
+        df_t1b = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[5])
 
-        st.success("✅ Significance testing completed!")
+        st.success("✅ Independent samples Z-test completed!")
         st.write("### 📊 T2B Analysis")
-        st.dataframe(t2b_df)
+        st.dataframe(df_t2b)
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            t2b_df.to_excel(writer, index=False, sheet_name='T2B Analysis')
-            t1b_df.to_excel(writer, index=False, sheet_name='T1B Analysis')
+            df_t2b.to_excel(writer, index=False, sheet_name='T2B Analysis')
+            df_t1b.to_excel(writer, index=False, sheet_name='T1B Analysis')
         output.seek(0)
 
         st.download_button(
@@ -191,16 +177,16 @@ if uploaded_file:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    elif test_design == "Paired Samples":
-        paired_df = build_output_df(df, concepts, attributes, method="paired")
+    elif test_design in ["Paired Samples", "Within-Subjects (Repeated Measures)"]:
+        df_paired = build_output_df(df, concepts, attributes, method="paired")
 
-        st.success("✅ Paired sample mean score comparison complete!")
+        st.success("✅ Paired t-test analysis completed!")
         st.write("### 📊 Paired t-test Analysis")
-        st.dataframe(paired_df)
+        st.dataframe(df_paired)
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            paired_df.to_excel(writer, index=False, sheet_name='Paired Analysis')
+            df_paired.to_excel(writer, index=False, sheet_name='Paired Analysis')
         output.seek(0)
 
         st.download_button(
@@ -210,5 +196,21 @@ if uploaded_file:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    else:
-        st.warning("🚧 This test type is not yet implemented beyond Independent and Paired Samples.")
+    elif test_design == "Multiple Groups (3+ concepts)":
+        df_anova = build_output_df(df, concepts, attributes, method="paired")
+
+        st.success("✅ ANOVA-style comparison complete!")
+        st.write("### 📊 Multiple Groups Analysis")
+        st.dataframe(df_anova)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_anova.to_excel(writer, index=False, sheet_name='Multiple Groups Analysis')
+        output.seek(0)
+
+        st.download_button(
+            label="📥 Download Multiple Groups Analysis",
+            data=output,
+            file_name="Multiple_Groups_Analysis.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
