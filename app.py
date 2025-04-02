@@ -8,12 +8,16 @@ import io
 
 # === CONFIG ===
 top2_values = [4, 5]
-confidence_z = 1.645  # for 90% confidence
+confidence_z_90 = 1.645  # for 90% confidence
+confidence_z_80 = 0.84   # for 80% confidence
 
 st.set_page_config(page_title="Significance Testing Tool")
 st.title("📊 Significance Testing App")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
+
+# === USER OPTIONS ===
+show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", value=True)
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
@@ -25,7 +29,7 @@ if uploaded_file:
     breakout_cols = [col for col in df.columns if col.lower().startswith("breakout")]
     attributes = [col for col in df.columns[3:-1] if col not in breakout_cols]
 
-    def calculate_table(data, concepts, attributes):
+    def calculate_table(data, concepts, attributes, show_80_confidence):
         result_rows = []
         for attr in attributes:
             attr_result = {}
@@ -54,11 +58,14 @@ if uploaded_file:
                     if se == 0:
                         continue
                     z = (p1_p - p2_p) / se
-                    if z > confidence_z:
-                        match = re.search(r'Concept (\d+)', c2)
-                        if match:
-                            letter = ascii_uppercase[int(match.group(1)) - 1]
+
+                    match = re.search(r'Concept (\d+)', c2)
+                    if match:
+                        letter = ascii_uppercase[int(match.group(1)) - 1]
+                        if z > confidence_z_90:
                             better_than.append(letter)
+                        elif show_80_confidence and z > confidence_z_80:
+                            better_than.append(letter.lower())
 
                 if pd.isna(p1):
                     label = "NA"
@@ -70,7 +77,7 @@ if uploaded_file:
         return result_rows
 
     # === STEP 1: REP (Total Sample)
-    rep_rows = calculate_table(df, concepts, attributes)
+    rep_rows = calculate_table(df, concepts, attributes, show_80_confidence)
     all_rows = []
     attribute_labels = []
     group_labels = []
@@ -96,7 +103,7 @@ if uploaded_file:
             group_bases = [len(group_df[group_df['Concept'] == concept]) for concept in concepts]
             group_n = int(np.round(np.mean(group_bases)))
 
-            group_rows = calculate_table(group_df, concepts, attributes)
+            group_rows = calculate_table(group_df, concepts, attributes, show_80_confidence)
             for attr, row in zip(attributes, group_rows):
                 all_rows.append(row)
                 attribute_labels.append(attr)
