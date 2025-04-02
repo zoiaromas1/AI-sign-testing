@@ -120,7 +120,7 @@ if uploaded_file:
     t1b_df = build_output_df(df, concepts, attributes, [5], show_80_confidence)
 
     st.success("✅ Significance testing completed!")
-    st.write("### 📊 T2B Analysis")
+    st.write("### 📊 T1B&T2B Analysis")
     st.dataframe(t2b_df)
 
     # === DOWNLOAD BUTTON
