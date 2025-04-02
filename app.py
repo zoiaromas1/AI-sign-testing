@@ -7,13 +7,12 @@ from string import ascii_uppercase
 import io
 
 # === CONFIG ===
-confidence_z_90 = 1.645  # for 90% confidence
-confidence_z_80 = 0.84   # for 80% confidence
+confidence_z_90 = 1.645
+confidence_z_80 = 0.84
 
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
 st.title("📊 Significance Testing App")
 
-# === TEST DESIGN SELECTION ===
 test_design = st.selectbox(
     "Choose your test design:",
     options=[
@@ -25,45 +24,26 @@ test_design = st.selectbox(
 )
 
 with st.expander("ℹ️ What does this mean?"):
-    if test_design == "Independent Samples (default)":
-        st.markdown("""
-        - **Use when:** different people rated each concept (monadic test)
-        - **Statistical test:** Z-test for comparing proportions
-        - **Ideal for:** T2B, T1B, Net Score comparisons
-        """)
-    elif test_design == "Paired Samples":
-        st.markdown("""
-        - **Use when:** same people rated multiple concepts
-        - **Statistical test:** Paired t-test (for mean scores)
-        - **Ideal for:** within-person comparisons, sequential exposure
-        """)
-    elif test_design == "Within-Subjects (Repeated Measures)":
-        st.markdown("""
-        - **Use when:** each person evaluated all concepts multiple times
-        - **Statistical test:** Paired t-test or Wilcoxon signed-rank
-        - **Ideal for:** longitudinal or psychometric setups
-        """)
-    elif test_design == "Multiple Groups (3+ concepts)":
-        st.markdown("""
-        - **Use when:** more than 2 groups/concepts are being compared simultaneously
-        - **Statistical test:** ANOVA (means) or Chi-Square (proportions)
-        - **Ideal for:** omnibus testing, follow-up with post-hocs
-        """)
+    explanations = {
+        "Independent Samples (default)": "**Use when:** different people rated each concept. **Test:** Z-test for comparing Top 2 Box %.",
+        "Paired Samples": "**Use when:** same people rated multiple concepts. **Test:** Paired t-test on binary T2B scores (1 = Top 2 Box).",
+        "Within-Subjects (Repeated Measures)": "**Use when:** repeated evaluation by same person. **Test:** Paired t-test on binary scores.",
+        "Multiple Groups (3+ concepts)": "**Use when:** more than 2 groups. **Test:** Paired t-test between concepts on binary data."
+    }
+    st.markdown(explanations[test_design])
 
 uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
 
-# === USER OPTIONS ===
+use_t1b = st.checkbox("🔘 Use Top 1 Box (only score = 5)", value=False)
 show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", value=True)
 
 if uploaded_file:
-    st.markdown("---")
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
-
     if 'ID' in df.columns:
         df = df.rename(columns={'ID': 'Respondent'})
-    elif test_design in ["Paired Samples", "Within-Subjects (Repeated Measures)"]:
-        st.error("❌ Your file must contain a unique ID column named 'ID' for paired or within-subjects testing.")
+    elif test_design != "Independent Samples (default)":
+        st.error("❌ Missing required 'ID' column for paired/within-subjects tests.")
         st.stop()
 
     df['Concept_num'] = df['Concept'].str.extract(r'Concept (\d+)').astype(float)
@@ -72,12 +52,16 @@ if uploaded_file:
     concepts = df['Concept'].dropna().unique()
     breakout_cols = [col for col in df.columns if col.lower().startswith("breakout")]
     attributes = [col for col in df.columns[3:-1] if col not in breakout_cols]
+    bucket_values = [5] if use_t1b else [4, 5]
 
     def calculate_significance(data, concepts, attributes, method="ztest", bucket_values=None):
         result_rows = []
         pivot = None
-        if method in ["paired", "within"]:
-            pivot = data.pivot_table(index='Respondent', columns='Concept', values=attributes)
+        if method != "ztest":
+            pivot = data.copy()
+            for attr in attributes:
+                pivot[attr] = pivot[attr].apply(lambda x: 1 if x in bucket_values else 0)
+            pivot = pivot.pivot_table(index='Respondent', columns='Concept', values=attributes)
 
         for attr in attributes:
             row_data = {}
@@ -130,7 +114,8 @@ if uploaded_file:
                     label = f"{val}%" + (f" {', '.join(better_than)}" if better_than else "")
                 else:
                     scores = stats[c1]
-                    label = f"{scores.mean():.2f}" + (f" {', '.join(better_than)}" if better_than else "") if scores.count() > 0 else "NA"
+                    pct = scores.mean() * 100
+                    label = f"{round(pct)}%" + (f" {', '.join(better_than)}" if better_than else "") if scores.count() > 0 else "NA"
                 row_data[c1] = label
 
             result_rows.append(row_data)
@@ -138,7 +123,6 @@ if uploaded_file:
 
     def build_output_df(data, concepts, attributes, method, bucket_values=None):
         all_rows, attribute_labels, group_labels = [], [], []
-
         rep_rows = calculate_significance(data, concepts, attributes, method, bucket_values)
         rep_bases = [len(data[data['Concept'] == concept]) for concept in concepts]
         rep_n = int(np.round(np.mean(rep_bases)))
@@ -155,62 +139,21 @@ if uploaded_file:
         final_df.columns = ["Attribute", "Group"] + [concept_labels[c] for c in concepts]
         return final_df
 
-    # === RUN TEST ===
-    if test_design == "Independent Samples (default)":
-        df_t2b = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[4, 5])
-        df_t1b = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[5])
+    method = "ztest" if test_design == "Independent Samples (default)" else "paired"
+    df_results = build_output_df(df, concepts, attributes, method, bucket_values)
 
-        st.success("✅ Independent samples Z-test completed!")
-        st.write("### 📊 T2B Analysis")
-        st.dataframe(df_t2b)
+    st.success("✅ Analysis complete!")
+    st.dataframe(df_results)
 
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_t2b.to_excel(writer, index=False, sheet_name='T2B Analysis')
-            df_t1b.to_excel(writer, index=False, sheet_name='T1B Analysis')
-        output.seek(0)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        sheet_name = 'T1B Analysis' if use_t1b else 'T2B Analysis'
+        df_results.to_excel(writer, index=False, sheet_name=sheet_name)
+    output.seek(0)
 
-        st.download_button(
-            label="📥 Download Excel with T2B + T1B",
-            data=output,
-            file_name="Significance_Results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    elif test_design in ["Paired Samples", "Within-Subjects (Repeated Measures)"]:
-        df_paired = build_output_df(df, concepts, attributes, method="paired")
-
-        st.success("✅ Paired t-test analysis completed!")
-        st.write("### 📊 Paired t-test Analysis")
-        st.dataframe(df_paired)
-
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_paired.to_excel(writer, index=False, sheet_name='Paired Analysis')
-        output.seek(0)
-
-        st.download_button(
-            label="📥 Download Paired Analysis",
-            data=output,
-            file_name="Paired_Analysis.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    elif test_design == "Multiple Groups (3+ concepts)":
-        df_anova = build_output_df(df, concepts, attributes, method="paired")
-
-        st.success("✅ ANOVA-style comparison complete!")
-        st.write("### 📊 Multiple Groups Analysis")
-        st.dataframe(df_anova)
-
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_anova.to_excel(writer, index=False, sheet_name='Multiple Groups Analysis')
-        output.seek(0)
-
-        st.download_button(
-            label="📥 Download Multiple Groups Analysis",
-            data=output,
-            file_name="Multiple_Groups_Analysis.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.download_button(
+        label=f"📥 Download {sheet_name} Excel",
+        data=output,
+        file_name=f"Significance_{sheet_name.replace(' ', '_')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
