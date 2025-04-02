@@ -59,6 +59,14 @@ if uploaded_file:
     st.markdown("---")
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
+
+    # Rename unique ID column if it exists
+    if 'ID' in df.columns:
+        df = df.rename(columns={'ID': 'Respondent'})
+    elif test_design == "Paired Samples":
+        st.error("❌ Your file must contain a unique ID column named 'ID' for paired sample testing.")
+        st.stop()
+
     df['Concept_num'] = df['Concept'].str.extract(r'Concept (\d+)').astype(float)
     df = df.sort_values(by='Concept_num')
 
