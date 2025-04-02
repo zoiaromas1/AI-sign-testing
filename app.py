@@ -109,10 +109,44 @@ if uploaded_file:
             result_rows.append(row_data)
         return result_rows
 
-    def build_output_df(data, concepts, attributes, bucket_values):
+    def calculate_paired_ttest(data, concepts, attributes):
+        result_rows = []
+        pivot = data.pivot_table(index='Respondent', columns='Concept', values=attributes)
+
+        for attr in attributes:
+            row_data = {}
+            for c1 in concepts:
+                scores1 = pivot[attr][c1]
+                label = "NA"
+                better_than = []
+                for c2 in concepts:
+                    if c1 == c2:
+                        continue
+                    scores2 = pivot[attr][c2]
+                    paired = pd.DataFrame({"c1": scores1, "c2": scores2}).dropna()
+                    if len(paired) > 1:
+                        t_stat, p_value = ttest_rel(paired['c1'], paired['c2'])
+                        match = re.search(r'Concept (\d+)', c2)
+                        if match:
+                            letter = ascii_uppercase[int(match.group(1)) - 1]
+                            if p_value < 0.1:
+                                better_than.append(letter.lower())
+                            if p_value < 0.05:
+                                better_than[-1] = letter
+                if scores1.count() > 0:
+                    label = f"{scores1.mean():.2f}" + (f" {', '.join(better_than)}" if better_than else "")
+                row_data[c1] = label
+            result_rows.append(row_data)
+        return result_rows
+
+    def build_output_df(data, concepts, attributes, method, bucket_values=None):
         all_rows, attribute_labels, group_labels = [], [], []
 
-        rep_rows = calculate_ztest_table(data, concepts, attributes, bucket_values)
+        if method == "ztest":
+            rep_rows = calculate_ztest_table(data, concepts, attributes, bucket_values)
+        elif method == "paired":
+            rep_rows = calculate_paired_ttest(data, concepts, attributes)
+
         rep_bases = [len(data[data['Concept'] == concept]) for concept in concepts]
         rep_n = int(np.round(np.mean(rep_bases)))
 
@@ -120,21 +154,6 @@ if uploaded_file:
             all_rows.append(row)
             attribute_labels.append(attr)
             group_labels.append(f"REP [n={rep_n}]")
-
-        seen_groups = set()
-        for breakout in breakout_cols:
-            for group_value in data[breakout].dropna().unique():
-                if group_value in seen_groups:
-                    continue
-                seen_groups.add(group_value)
-                group_df = data[data[breakout] == group_value]
-                group_rows = calculate_ztest_table(group_df, concepts, attributes, bucket_values)
-                group_bases = [len(group_df[group_df['Concept'] == concept]) for concept in concepts]
-                group_n = int(np.round(np.mean(group_bases)))
-                for attr, row in zip(attributes, group_rows):
-                    all_rows.append(row)
-                    attribute_labels.append(attr)
-                    group_labels.append(f"{group_value} [n={group_n}]")
 
         final_df = pd.DataFrame(all_rows)
         final_df.insert(0, "Group", group_labels)
@@ -144,8 +163,8 @@ if uploaded_file:
         return final_df
 
     if test_design == "Independent Samples (default)":
-        t2b_df = build_output_df(df, concepts, attributes, [4, 5])
-        t1b_df = build_output_df(df, concepts, attributes, [5])
+        t2b_df = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[4, 5])
+        t1b_df = build_output_df(df, concepts, attributes, method="ztest", bucket_values=[5])
 
         st.success("✅ Significance testing completed!")
         st.write("### 📊 T2B Analysis")
@@ -163,5 +182,25 @@ if uploaded_file:
             file_name="Significance_Results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+    elif test_design == "Paired Samples":
+        paired_df = build_output_df(df, concepts, attributes, method="paired")
+
+        st.success("✅ Paired sample mean score comparison complete!")
+        st.write("### 📊 Paired t-test Analysis")
+        st.dataframe(paired_df)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            paired_df.to_excel(writer, index=False, sheet_name='Paired Analysis')
+        output.seek(0)
+
+        st.download_button(
+            label="📥 Download Paired Analysis",
+            data=output,
+            file_name="Paired_Analysis.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
     else:
-        st.warning("🚧 This test type is not yet implemented. Only 'Independent Samples' is supported in this version.")
+        st.warning("🚧 This test type is not yet implemented beyond Independent and Paired Samples.")
