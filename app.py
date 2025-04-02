@@ -132,6 +132,23 @@ if uploaded_file:
             attribute_labels.append(attr)
             group_labels.append(f"REP [n={rep_n}]")
 
+        seen_groups = set()
+        for breakout in breakout_cols:
+            for group_value in data[breakout].dropna().unique():
+                if group_value in seen_groups:
+                    continue
+                seen_groups.add(group_value)
+
+                group_df = data[data[breakout] == group_value]
+                group_rows = calculate_significance(group_df, concepts, attributes, method, bucket_values)
+                group_bases = [len(group_df[group_df['Concept'] == concept]) for concept in concepts]
+                group_n = int(np.round(np.mean(group_bases)))
+
+                for attr, row in zip(attributes, group_rows):
+                    all_rows.append(row)
+                    attribute_labels.append(attr)
+                    group_labels.append(f"{group_value} [n={group_n}]")
+
         final_df = pd.DataFrame(all_rows)
         final_df.insert(0, "Group", group_labels)
         final_df.insert(0, "Attribute", attribute_labels)
