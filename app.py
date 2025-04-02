@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.stats import norm, ttest_rel, ttest_ind, f_oneway
+from scipy.stats import norm, ttest_rel
 import re
 from string import ascii_uppercase
 import io
@@ -13,6 +13,7 @@ confidence_z_80 = 0.84
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
 st.title("📊 Significance Testing App")
 
+# === TEST DESIGN SELECTION ===
 test_design = st.selectbox(
     "Choose your test design:",
     options=[
@@ -25,10 +26,10 @@ test_design = st.selectbox(
 
 with st.expander("ℹ️ What does this mean?"):
     explanations = {
-        "Independent Samples (default)": "**Use when:** different people rated each concept. **Test:** Z-test for comparing Top 2 Box %.",
-        "Paired Samples": "**Use when:** same people rated multiple concepts. **Test:** Paired t-test on binary T2B scores (1 = Top 2 Box).",
-        "Within-Subjects (Repeated Measures)": "**Use when:** repeated evaluation by same person. **Test:** Paired t-test on binary scores.",
-        "Multiple Groups (3+ concepts)": "**Use when:** more than 2 groups. **Test:** Paired t-test between concepts on binary data."
+        "Independent Samples (default)": "**Use when:** different people rated each concept. **Test:** Z-test for comparing Top 2 Box %",
+        "Paired Samples": "**Use when:** same people rated multiple concepts. **Test:** Paired t-test on binary T2B scores (1 = Top 2 Box)",
+        "Within-Subjects (Repeated Measures)": "**Use when:** repeated evaluation by same person. **Test:** Paired t-test on binary scores",
+        "Multiple Groups (3+ concepts)": "**Use when:** more than 2 groups. **Test:** Paired t-test between concepts on binary data"
     }
     st.markdown(explanations[test_design])
 
@@ -40,6 +41,7 @@ show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", valu
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
+    
     if 'ID' in df.columns:
         df = df.rename(columns={'ID': 'Respondent'})
     elif test_design != "Independent Samples (default)":
@@ -73,13 +75,15 @@ if uploaded_file:
                     pct = scores.isin(bucket_values).sum() / base * 100 if base > 0 else np.nan
                     stats[c1] = (pct, base)
                 else:
-                    scores = pivot[attr][c1]
-                    stats[c1] = scores
+                    if c1 in pivot[attr]:
+                        stats[c1] = pivot[attr][c1]
+                    else:
+                        stats[c1] = pd.Series(dtype=float)
 
             for c1 in concepts:
                 better_than = []
                 for c2 in concepts:
-                    if c1 == c2:
+                    if c1 == c2 or c1 not in stats or c2 not in stats:
                         continue
                     if method == "ztest":
                         p1, n1 = stats[c1]
@@ -110,14 +114,19 @@ if uploaded_file:
                                     better_than[-1] = letter
 
                 if method == "ztest":
-                    val = round(stats[c1][0])
-                    label = f"{val}%" + (f" {', '.join(better_than)}" if better_than else "")
+                    if c1 not in stats or pd.isna(stats[c1][0]):
+                        label = "NA"
+                    else:
+                        val = round(stats[c1][0])
+                        label = f"{val}%" + (f" {', '.join(better_than)}" if better_than else "")
                 else:
                     scores = stats[c1]
-                    pct = scores.mean() * 100
-                    label = f"{round(pct)}%" + (f" {', '.join(better_than)}" if better_than else "") if scores.count() > 0 else "NA"
+                    if len(scores.dropna()) == 0:
+                        label = "NA"
+                    else:
+                        pct = scores.mean() * 100
+                        label = f"{round(pct)}%" + (f" {', '.join(better_than)}" if better_than else "")
                 row_data[c1] = label
-
             result_rows.append(row_data)
         return result_rows
 
@@ -126,7 +135,6 @@ if uploaded_file:
         rep_rows = calculate_significance(data, concepts, attributes, method, bucket_values)
         rep_bases = [len(data[data['Concept'] == concept]) for concept in concepts]
         rep_n = int(np.round(np.mean(rep_bases)))
-
         for attr, row in zip(attributes, rep_rows):
             all_rows.append(row)
             attribute_labels.append(attr)
@@ -138,12 +146,10 @@ if uploaded_file:
                 if group_value in seen_groups:
                     continue
                 seen_groups.add(group_value)
-
                 group_df = data[data[breakout] == group_value]
                 group_rows = calculate_significance(group_df, concepts, attributes, method, bucket_values)
                 group_bases = [len(group_df[group_df['Concept'] == concept]) for concept in concepts]
                 group_n = int(np.round(np.mean(group_bases)))
-
                 for attr, row in zip(attributes, group_rows):
                     all_rows.append(row)
                     attribute_labels.append(attr)
