@@ -35,13 +35,22 @@ with st.expander("ℹ️ What does this mean?"):
 
 uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
 
-use_t1b = st.checkbox("🔘 Use Top 1 Box (only score = 5)", value=False)
+# === USER INPUT FOR BUCKET CODING ===
+use_t1b = st.checkbox("🔘 Use Top 1 Box", value=False)
 show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", value=True)
+
+if use_t1b:
+    t1_value = st.number_input("Enter value for Top 1 Box", min_value=0, max_value=100, value=5)
+    bucket_values = [t1_value]
+else:
+    t2b_1 = st.number_input("Enter first value for Top 2 Box", min_value=0, max_value=100, value=4)
+    t2b_2 = st.number_input("Enter second value for Top 2 Box", min_value=0, max_value=100, value=5)
+    bucket_values = [t2b_1, t2b_2]
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
-    
+
     if 'ID' in df.columns:
         df = df.rename(columns={'ID': 'Respondent'})
     elif test_design != "Independent Samples (default)":
@@ -54,7 +63,6 @@ if uploaded_file:
     concepts = df['Concept'].dropna().unique()
     breakout_cols = [col for col in df.columns if col.lower().startswith("breakout")]
     attributes = [col for col in df.columns[3:-1] if col not in breakout_cols]
-    bucket_values = [5] if use_t1b else [4, 5]
 
     def calculate_significance(data, concepts, attributes, method="ztest", bucket_values=None):
         result_rows = []
