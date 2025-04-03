@@ -57,12 +57,12 @@ if uploaded_file:
         st.error("❌ Missing required 'ID' column for paired/within-subjects tests.")
         st.stop()
 
-    df['Concept_num'] = df['Concept'].str.extract(r'Concept (\d+)').astype(float)
-    df = df.sort_values(by='Concept_num')
-
-    concepts = df['Concept'].dropna().unique()
     breakout_cols = [col for col in df.columns if col.lower().startswith("breakout")]
-    attributes = [col for col in df.columns[3:-1] if col not in breakout_cols]
+    concept_col = 'Concept'
+    attributes = [col for col in df.columns if col not in ['Respondent', concept_col] + breakout_cols]
+
+    concepts = df[concept_col].dropna().unique().tolist()
+    concept_labels = {concept: f"{ascii_uppercase[i]}. {concept}" for i, concept in enumerate(concepts)}
 
     def calculate_significance(data, concepts, attributes, method="ztest", bucket_values=None):
         result_rows = []
@@ -71,14 +71,14 @@ if uploaded_file:
             pivot = data.copy()
             for attr in attributes:
                 pivot[attr] = pivot[attr].apply(lambda x: 1 if x in bucket_values else 0)
-            pivot = pivot.pivot_table(index='Respondent', columns='Concept', values=attributes)
+            pivot = pivot.pivot_table(index='Respondent', columns=concept_col, values=attributes)
 
         for attr in attributes:
             row_data = {}
             stats = {}
             for c1 in concepts:
                 if method == "ztest":
-                    scores = data[data['Concept'] == c1][attr].dropna()
+                    scores = data[data[concept_col] == c1][attr].dropna()
                     base = len(scores)
                     pct = scores.isin(bucket_values).sum() / base * 100 if base > 0 else np.nan
                     stats[c1] = (pct, base)
@@ -102,24 +102,20 @@ if uploaded_file:
                         if se == 0:
                             continue
                         z = (p1 - p2) / se
-                        match = re.search(r'Concept (\d+)', c2)
-                        if match:
-                            letter = ascii_uppercase[int(match.group(1)) - 1]
-                            if z > confidence_z_90:
-                                better_than.append(letter)
-                            elif show_80_confidence and z > confidence_z_80:
-                                better_than.append(letter.lower())
+                        letter = concept_labels.get(c2, c2)[0]
+                        if z > confidence_z_90:
+                            better_than.append(letter)
+                        elif show_80_confidence and z > confidence_z_80:
+                            better_than.append(letter.lower())
                     else:
                         paired = pd.DataFrame({"c1": stats[c1], "c2": stats[c2]}).dropna()
                         if len(paired) > 1:
                             t_stat, p_value = ttest_rel(paired['c1'], paired['c2'])
-                            match = re.search(r'Concept (\d+)', c2)
-                            if match:
-                                letter = ascii_uppercase[int(match.group(1)) - 1]
-                                if p_value < 0.1:
-                                    better_than.append(letter.lower())
-                                if p_value < 0.05:
-                                    better_than[-1] = letter
+                            letter = concept_labels.get(c2, c2)[0]
+                            if p_value < 0.1:
+                                better_than.append(letter.lower())
+                            if p_value < 0.05:
+                                better_than[-1] = letter
 
                 if method == "ztest":
                     if c1 not in stats or pd.isna(stats[c1][0]):
@@ -141,7 +137,7 @@ if uploaded_file:
     def build_output_df(data, concepts, attributes, method, bucket_values=None):
         all_rows, attribute_labels, group_labels = [], [], []
         rep_rows = calculate_significance(data, concepts, attributes, method, bucket_values)
-        rep_bases = [len(data[data['Concept'] == concept]) for concept in concepts]
+        rep_bases = [len(data[data[concept_col] == concept]) for concept in concepts]
         rep_n = int(np.round(np.mean(rep_bases)))
         for attr, row in zip(attributes, rep_rows):
             all_rows.append(row)
@@ -156,7 +152,7 @@ if uploaded_file:
                 seen_groups.add(group_value)
                 group_df = data[data[breakout] == group_value]
                 group_rows = calculate_significance(group_df, concepts, attributes, method, bucket_values)
-                group_bases = [len(group_df[group_df['Concept'] == concept]) for concept in concepts]
+                group_bases = [len(group_df[group_df[concept_col] == concept]) for concept in concepts]
                 group_n = int(np.round(np.mean(group_bases)))
                 for attr, row in zip(attributes, group_rows):
                     all_rows.append(row)
@@ -166,8 +162,8 @@ if uploaded_file:
         final_df = pd.DataFrame(all_rows)
         final_df.insert(0, "Group", group_labels)
         final_df.insert(0, "Attribute", attribute_labels)
-        concept_labels = {concept: f"{ascii_uppercase[i]}. {concept}" for i, concept in enumerate(concepts)}
-        final_df.columns = ["Attribute", "Group"] + [concept_labels[c] for c in concepts]
+        existing_concepts = final_df.columns[2:]
+        final_df.columns = ["Attribute", "Group"] + [concept_labels.get(c, c) for c in existing_concepts]
         return final_df
 
     method = "ztest" if test_design == "Independent Samples (default)" else "paired"
