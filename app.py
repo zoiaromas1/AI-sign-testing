@@ -13,38 +13,40 @@ confidence_z_80 = 0.84
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
 st.title("📊 Significance Testing App")
 
-# === TEMPLATE DOWNLOAD ===
-@st.cache_data
-def generate_template():
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_template = pd.DataFrame({
-            "ID": ["001", "002"],
-            "Concept": ["Concept 1", "Concept 2"],
-            "Breakout 1": ["Male", "Female"],
-            "Breakout 2": ["18-34", "35-54"],
-            "Attribute 1": [4, 5],
-            "Attribute 2": [3, 4]
-        })
-        df_template.to_excel(writer, index=False, sheet_name="Template")
-    output.seek(0)
-    return output
-
-st.download_button(
-    label="📥 Download Excel Template",
-    data=generate_template(),
-    file_name="equity_analysis_template.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
-# === MODULE SELECTION ===
-analysis_type = st.radio(
+# === MODULE DROPDOWN SELECTION ===
+analysis_type = st.selectbox(
     "What do you want to analyze?",
-    ["Equity attribute analysis between concepts"],
-    index=0
+    ["", "Equity attribute analysis between concepts"],
+    index=0,
+    placeholder="Select an analysis to begin"
 )
 
+# === SHOW UI ONLY IF SELECTION IS MADE ===
 if analysis_type == "Equity attribute analysis between concepts":
+
+    # === TEMPLATE DOWNLOAD ===
+    @st.cache_data
+    def generate_template():
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_template = pd.DataFrame({
+                "ID": ["001", "002"],
+                "Concept": ["Concept 1", "Concept 2"],
+                "Breakout 1": ["Male", "Female"],
+                "Breakout 2": ["18-34", "35-54"],
+                "Attribute 1": [4, 5],
+                "Attribute 2": [3, 4]
+            })
+            df_template.to_excel(writer, index=False, sheet_name="Template")
+        output.seek(0)
+        return output
+
+    st.download_button(
+        label="📥 Download Excel Template",
+        data=generate_template(),
+        file_name="equity_analysis_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
     # === TEST DESIGN SELECTION ===
     test_design = st.selectbox(
@@ -66,9 +68,7 @@ if analysis_type == "Equity attribute analysis between concepts":
         }
         st.markdown(explanations[test_design])
 
-    uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
-
-    # === USER INPUT FOR BUCKET CODING ===
+    # === T1B / T2B CONTROLS — moved above uploader ===
     use_t1b = st.checkbox("🔘 Use Top 1 Box", value=False)
     show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", value=True)
 
@@ -79,6 +79,9 @@ if analysis_type == "Equity attribute analysis between concepts":
         t2b_1 = st.number_input("Enter first value for Top 2 Box", min_value=0, max_value=100, value=4)
         t2b_2 = st.number_input("Enter second value for Top 2 Box", min_value=0, max_value=100, value=5)
         bucket_values = [t2b_1, t2b_2]
+
+    # === FILE UPLOAD ===
+    uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
 
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
