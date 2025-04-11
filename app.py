@@ -234,7 +234,9 @@ if uploaded_file:
     group_concept_df = pd.DataFrame(group_concept_rows)
 
     # Adding Concept/Breakout as a new column to the dataframe
-    group_concept_df['Concept/Breakout'] = np.tile(concept_values, len(group_concept_rows) // len(concept_values))
+    # Repeat the concept values to match the number of rows in the group_concept_df
+    concept_values_repeated = np.repeat(concept_values, len(group_concept_df) // len(concept_values))
+    group_concept_df['Concept/Breakout'] = concept_values_repeated
 
     st.subheader("📊 Group vs Concept/Breakout Table")
     st.dataframe(group_concept_df)
