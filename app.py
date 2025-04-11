@@ -1,3 +1,5 @@
+# I'll first modify the existing Streamlit code to add the requested improvements.
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,19 +12,36 @@ import io
 confidence_z_90 = 1.645
 confidence_z_80 = 0.84
 
+# Streamlit page config
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
 st.title("📊 Significance Testing App")
+
+# === INSTRUCTIONS & UI CHANGES ===
+st.subheader("Step-by-Step Manual")
+st.markdown("""
+1. **Step 1: Choose your type of analysis**  
+   Select whether you are comparing concepts or other categories (e.g., brand users).
+   
+2. **Step 2: Download the template and fill it in**  
+   Download the Excel template and fill in your data with the appropriate columns.
+   
+3. **Step 3: Upload your filled-in file**  
+   Once the template is completed, upload the file for analysis.
+   
+4. **Step 4: View the results**  
+   After the file is uploaded, the analysis results will be shown and available for download.
+""")
 
 # === MODULE DROPDOWN SELECTION ===
 analysis_type = st.selectbox(
     "What do you want to analyze?",
-    ["", "Equity attribute analysis between concepts"],
+    ["", "Equity attribute analysis between concepts", "Brand/User Group Comparison"],
     index=0,
     placeholder="Select an analysis to begin"
 )
 
 # === SHOW UI ONLY IF SELECTION IS MADE ===
-if analysis_type == "Equity attribute analysis between concepts":
+if analysis_type in ["Equity attribute analysis between concepts", "Brand/User Group Comparison"]:
 
     # === TEMPLATE DOWNLOAD ===
     @st.cache_data
@@ -32,6 +51,7 @@ if analysis_type == "Equity attribute analysis between concepts":
             df_template = pd.DataFrame({
                 "ID": ["001", "002"],
                 "Concept": ["Concept 1", "Concept 2"],
+                "Brand/User Group": ["Brand A", "Brand B"],
                 "Breakout 1": ["Male", "Female"],
                 "Breakout 2": ["18-34", "35-54"],
                 "Attribute 1": [4, 5],
@@ -44,7 +64,7 @@ if analysis_type == "Equity attribute analysis between concepts":
     st.download_button(
         label="📥 Download Excel Template",
         data=generate_template(),
-        file_name="equity_analysis_template.xlsx",
+        file_name="analysis_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -70,7 +90,7 @@ if analysis_type == "Equity attribute analysis between concepts":
 
     # === T1B / T2B CONTROLS — moved above uploader ===
     use_t1b = st.checkbox("🔘 Use Top 1 Box", value=False)
-    show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", value=True)
+    show_custom_confidence = st.checkbox("Show Custom Confidence Level (80% by default)", value=False)
 
     if use_t1b:
         t1_value = st.number_input("Enter value for Top 1 Box", min_value=0, max_value=100, value=5)
@@ -79,6 +99,13 @@ if analysis_type == "Equity attribute analysis between concepts":
         t2b_1 = st.number_input("Enter first value for Top 2 Box", min_value=0, max_value=100, value=4)
         t2b_2 = st.number_input("Enter second value for Top 2 Box", min_value=0, max_value=100, value=5)
         bucket_values = [t2b_1, t2b_2]
+
+    # Custom Confidence Level
+    if show_custom_confidence:
+        confidence_level = st.number_input("Enter Confidence Level (%)", min_value=50, max_value=100, value=90)
+        confidence_z = norm.ppf(1 - (1 - confidence_level / 100) / 2)
+    else:
+        confidence_z = confidence_z_90  # Default 90% confidence
 
     # === FILE UPLOAD ===
     uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
@@ -143,7 +170,7 @@ if analysis_type == "Equity attribute analysis between concepts":
                                 letter = ascii_uppercase[int(match.group(1)) - 1]
                                 if z > confidence_z_90:
                                     better_than.append(letter)
-                                elif show_80_confidence and z > confidence_z_80:
+                                elif show_custom_confidence and z > confidence_z:
                                     better_than.append(letter.lower())
                         else:
                             paired = pd.DataFrame({"c1": stats[c1], "c2": stats[c2]}).dropna()
