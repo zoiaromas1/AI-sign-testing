@@ -233,9 +233,10 @@ if uploaded_file:
     # Create DataFrame for the new table
     group_concept_df = pd.DataFrame(group_concept_rows)
 
-    # Fix for Concept/Breakout column: Ensure the lengths match dynamically
+    # Adding Concept/Breakout as a new column to the dataframe
+    # Dynamically repeat concept values
     total_rows = len(group_concept_df)
-    concept_values_repeated = np.tile(concept_values, total_rows // len(concept_values))[:total_rows]
+    concept_values_repeated = np.repeat(concept_values, np.ceil(total_rows / len(concept_values)).astype(int))[:total_rows]
     group_concept_df['Concept/Breakout'] = concept_values_repeated
 
     st.subheader("📊 Group vs Concept/Breakout Table")
