@@ -104,11 +104,7 @@ if uploaded_file:
 
     # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns)
     breakout_columns = [col for col in df.columns if col.lower().startswith("breakout")]
-    concept_column = "Concept"  # Always use Concept column as an option
-    group_column = st.selectbox(
-        "Choose the column to differentiate between groups",
-        breakout_columns + [concept_column]
-    )
+    group_column = st.selectbox("Choose the breakout column to differentiate between groups", breakout_columns)
 
     # Sort data by the chosen group column
     df = df.sort_values(by=group_column)
@@ -116,7 +112,6 @@ if uploaded_file:
     # Identify breakout columns and attributes
     attributes = [col for col in df.columns if col not in breakout_columns and col != 'Concept' and col != 'Respondent']
 
-    # Exclude the group column (e.g., Concept or Breakout) from the "Group" column
     def calculate_significance(data, group_column, attributes, method="ztest", bucket_values=None):
         result_rows = []
         pivot = None
@@ -207,56 +202,21 @@ if uploaded_file:
         final_df.columns = ["Attribute", "Group"] + [group_labels_map[g] for g in data[group_column].dropna().unique()]
         return final_df
 
-    # ---- NEW TABLE: Group vs Concept/Breakout ----
-    def build_group_concept_df(data, group_column, method, bucket_values=None):
-        group_concept_rows = []
-        concept_values = data['Concept'].dropna().unique()
-        for group in data[group_column].dropna().unique():
-            for concept in concept_values:
-                row_data = {}
-                stats = {}
-                concept_data = data[data['Concept'] == concept]
-                for group_value in concept_data[group_column].dropna().unique():
-                    group_df = concept_data[concept_data[group_column] == group_value]
-                    base = len(group_df)
-                    pct = group_df['Attribute 1'].mean() * 100 if base > 0 else np.nan  # Example with Attribute 1
-                    stats[group_value] = (pct, base)
-
-                for group_value in stats:
-                    label = f"{round(stats[group_value][0])}%"  # Displaying percentage
-                    row_data[group_value] = label
-                group_concept_rows.append(row_data)
-        return group_concept_rows
-
-    group_concept_rows = build_group_concept_df(df, group_column, method="ztest", bucket_values=bucket_values)
-
-    # Create DataFrame for the new table
-    group_concept_df = pd.DataFrame(group_concept_rows)
-
-    # Adding Concept/Breakout as a new column to the dataframe
-    # Dynamically repeat concept values
-    total_rows = len(group_concept_df)
-    concept_values_repeated = np.repeat(concept_values, np.ceil(total_rows / len(concept_values)).astype(int))[:total_rows]
-    group_concept_df['Concept/Breakout'] = concept_values_repeated
-
-    st.subheader("📊 Group vs Concept/Breakout Table")
-    st.dataframe(group_concept_df)
-
-    # Existing table with Attributes vs Groups
-    st.subheader("📊 Attribute vs Group Table")
+    method = "ztest" if test_design == "Independent Samples (default)" else "paired"
     df_results = build_output_df(df, group_column, attributes, method, bucket_values)
+
+    st.success("✅ Analysis complete!")
     st.dataframe(df_results)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         sheet_name = 'T1B Analysis' if use_t1b else 'T2B Analysis'
         df_results.to_excel(writer, index=False, sheet_name=sheet_name)
-        group_concept_df.to_excel(writer, index=False, sheet_name="Group_vs_Concept")
     output.seek(0)
 
     st.download_button(
-        label=f"📥 Download Excel",
+        label=f"📥 Download {sheet_name} Excel",
         data=output,
-        file_name=f"Significance_Analysis.xlsx",
+        file_name=f"Significance_{sheet_name.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
