@@ -18,14 +18,14 @@ st.title("📊 Significance Testing App")
 st.subheader("Step-by-Step Manual")
 st.markdown("""
 1. **Step 1: Choose your type of analysis**  
-   Select whether you are comparing concepts or other categories (e.g., brand users).
-   
+   Select whether you are comparing concepts or other categories (e.g., brand users). If not concept testing, leave the 'Concept' column the same everywhere in the template.
+
 2. **Step 2: Download the template and fill it in**  
-   Download the Excel template and fill in your data with the appropriate columns.
-   
+   Download the Excel template and fill in your data with the appropriate columns. If not concept testing, leave the 'Concept' column consistent.
+
 3. **Step 3: Upload your filled-in file**  
    Once the template is completed, upload the file for analysis.
-   
+
 4. **Step 4: View the results**  
    After the file is uploaded, the analysis results will be shown and available for download.
 """)
@@ -48,7 +48,7 @@ if analysis_type in ["Equity attribute analysis between concepts", "Brand/User G
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_template = pd.DataFrame({
                 "ID": ["001", "002"],
-                "Brand/User Group": ["Brand A", "Brand B"],
+                "Concept": ["Concept 1", "Concept 2"],  # User can leave this the same if not concept testing
                 "Breakout 1": ["Male", "Female"],
                 "Breakout 2": ["18-34", "35-54"],
                 "Attribute 1": [4, 5],
@@ -116,15 +116,15 @@ if analysis_type in ["Equity attribute analysis between concepts", "Brand/User G
             st.error("❌ Missing required 'ID' column for paired/within-subjects tests.")
             st.stop()
 
-        # Ask the user to choose the column to differentiate between groups (e.g., Brand/User Group)
-        group_column = st.selectbox("Choose the column to differentiate between groups", df.columns)
+        # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns)
+        breakout_columns = [col for col in df.columns if col.lower().startswith("breakout")]
+        group_column = st.selectbox("Choose the breakout column to differentiate between groups", breakout_columns)
 
         # Sort data by the chosen group column
         df = df.sort_values(by=group_column)
 
         # Identify breakout columns and attributes
-        breakout_cols = [col for col in df.columns if col.lower().startswith("breakout")]
-        attributes = [col for col in df.columns if col not in breakout_cols and col != group_column]
+        attributes = [col for col in df.columns if col not in breakout_columns and col != 'Concept']
 
         def calculate_significance(data, group_column, attributes, method="ztest", bucket_values=None):
             result_rows = []
@@ -195,7 +195,7 @@ if analysis_type in ["Equity attribute analysis between concepts", "Brand/User G
                 group_labels.append(f"REP [n={rep_n}]")
 
             seen_groups = set()
-            for breakout in breakout_cols:
+            for breakout in breakout_columns:
                 for group_value in data[breakout].dropna().unique():
                     if group_value in seen_groups:
                         continue
