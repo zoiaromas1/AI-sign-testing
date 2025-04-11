@@ -104,7 +104,11 @@ if uploaded_file:
 
     # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns)
     breakout_columns = [col for col in df.columns if col.lower().startswith("breakout")]
-    group_column = st.selectbox("Choose the breakout column to differentiate between groups", breakout_columns)
+    concept_column = "Concept"  # Always use Concept column as an option
+    group_column = st.selectbox(
+        "Choose the column to differentiate between groups",
+        breakout_columns + [concept_column]
+    )
 
     # Sort data by the chosen group column
     df = df.sort_values(by=group_column)
@@ -112,6 +116,7 @@ if uploaded_file:
     # Identify breakout columns and attributes
     attributes = [col for col in df.columns if col not in breakout_columns and col != 'Concept' and col != 'Respondent']
 
+    # Exclude the group column (e.g., Concept or Breakout) from the "Group" column
     def calculate_significance(data, group_column, attributes, method="ztest", bucket_values=None):
         result_rows = []
         pivot = None
