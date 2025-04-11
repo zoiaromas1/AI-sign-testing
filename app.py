@@ -200,6 +200,13 @@ if uploaded_file:
         final_df = pd.DataFrame(all_rows)
         final_df.insert(0, "Group", group_labels)
         final_df.insert(0, "Attribute", attribute_labels)
+
+        # Dynamically remove duplicates of group values
+        final_df = final_df.drop_duplicates(subset=['Group'])
+
+        # Handle None replacement
+        final_df.replace("None", "0%", inplace=True)
+
         group_labels_map = {group: f"{ascii_uppercase[i]}. {group}" for i, group in enumerate(data[group_column].dropna().unique())}
         final_df.columns = ["Attribute", "Group"] + [group_labels_map[g] for g in data[group_column].dropna().unique()]
         return final_df
