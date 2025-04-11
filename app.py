@@ -102,7 +102,7 @@ if uploaded_file:
         st.error("❌ Missing required 'ID' column for paired/within-subjects tests.")
         st.stop()
 
-    # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns)
+    # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns or Concept)
     breakout_columns = [col for col in df.columns if col.lower().startswith("breakout")]
     concept_column = "Concept"  # Always use Concept column as an option
     group_column = st.selectbox("Choose the column to differentiate between groups (Breakout or Concept)", breakout_columns + [concept_column])
@@ -204,8 +204,12 @@ if uploaded_file:
         final_df.columns = ["Attribute", "Group"] + [group_labels_map[g] for g in data[group_column].dropna().unique()]
         return final_df
 
-    # If the cell value is None, replace it with 0% in results
-    df.replace({None: "0%"}, inplace=True)
+    # Replace None with 0%
+    df.fillna("0%", inplace=True)
+
+    # Exclude the chosen group column dynamically from the attributes column
+    if group_column in df.columns:
+        attributes = [col for col in df.columns if col != group_column and col != "Concept" and col != "Respondent"]
 
     method = "ztest" if test_design == "Independent Samples (default)" else "paired"
     df_results = build_output_df(df, group_column, attributes, method, bucket_values)
