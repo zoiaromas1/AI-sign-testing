@@ -210,8 +210,9 @@ if uploaded_file:
     # ---- NEW TABLE: Group vs Concept/Breakout ----
     def build_group_concept_df(data, group_column, method, bucket_values=None):
         group_concept_rows = []
+        concept_values = data['Concept'].dropna().unique()
         for group in data[group_column].dropna().unique():
-            for concept in data['Concept'].dropna().unique():  # Make sure Concept is correctly accessed
+            for concept in concept_values:
                 row_data = {}
                 stats = {}
                 concept_data = data[data['Concept'] == concept]
@@ -232,8 +233,8 @@ if uploaded_file:
     # Create DataFrame for the new table
     group_concept_df = pd.DataFrame(group_concept_rows)
 
-    # Adding Concept/Breakout as a new column
-    group_concept_df['Concept/Breakout'] = [concept for concept in df['Concept'].dropna().unique()] * len(group_concept_rows)
+    # Adding Concept/Breakout as a new column to the dataframe
+    group_concept_df['Concept/Breakout'] = np.tile(concept_values, len(group_concept_rows) // len(concept_values))
 
     st.subheader("📊 Group vs Concept/Breakout Table")
     st.dataframe(group_concept_df)
