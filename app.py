@@ -188,4 +188,49 @@ if analysis_type in ["Equity attribute analysis between concepts", "Brand/User G
             all_rows, attribute_labels, group_labels = [], [], []
             rep_rows = calculate_significance(data, group_column, attributes, method, bucket_values)
             rep_bases = [len(data[data[group_column] == group]) for group in data[group_column].dropna().unique()]
-            rep_n = int(np.round_
+            rep_n = int(np.round(np.mean(rep_bases)))
+            for attr, row in zip(attributes, rep_rows):
+                all_rows.append(row)
+                attribute_labels.append(attr)
+                group_labels.append(f"REP [n={rep_n}]")
+
+            seen_groups = set()
+            for breakout in breakout_cols:
+                for group_value in data[breakout].dropna().unique():
+                    if group_value in seen_groups:
+                        continue
+                    seen_groups.add(group_value)
+                    group_df = data[data[breakout] == group_value]
+                    group_rows = calculate_significance(group_df, group_column, attributes, method, bucket_values)
+                    group_bases = [len(group_df[group_df[group_column] == group]) for group in data[group_column].dropna().unique()]
+                    group_n = int(np.round(np.mean(group_bases)))
+                    for attr, row in zip(attributes, group_rows):
+                        all_rows.append(row)
+                        attribute_labels.append(attr)
+                        group_labels.append(f"{group_value} [n={group_n}]")
+
+            final_df = pd.DataFrame(all_rows)
+            final_df.insert(0, "Group", group_labels)
+            final_df.insert(0, "Attribute", attribute_labels)
+            group_labels_map = {group: f"{ascii_uppercase[i]}. {group}" for i, group in enumerate(data[group_column].dropna().unique())}
+            final_df.columns = ["Attribute", "Group"] + [group_labels_map[g] for g in data[group_column].dropna().unique()]
+            return final_df
+
+        method = "ztest" if test_design == "Independent Samples (default)" else "paired"
+        df_results = build_output_df(df, group_column, attributes, method, bucket_values)
+
+        st.success("✅ Analysis complete!")
+        st.dataframe(df_results)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            sheet_name = 'T1B Analysis' if use_t1b else 'T2B Analysis'
+            df_results.to_excel(writer, index=False, sheet_name=sheet_name)
+        output.seek(0)
+
+        st.download_button(
+            label=f"📥 Download {sheet_name} Excel",
+            data=output,
+            file_name=f"Significance_{sheet_name.replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
