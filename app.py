@@ -104,7 +104,8 @@ if uploaded_file:
 
     # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns)
     breakout_columns = [col for col in df.columns if col.lower().startswith("breakout")]
-    group_column = st.selectbox("Choose the breakout column to differentiate between groups", breakout_columns)
+    concept_column = "Concept"  # Always use Concept column as an option
+    group_column = st.selectbox("Choose the column to differentiate between groups (Breakout or Concept)", breakout_columns + [concept_column])
 
     # Sort data by the chosen group column
     df = df.sort_values(by=group_column)
@@ -112,6 +113,7 @@ if uploaded_file:
     # Identify breakout columns and attributes
     attributes = [col for col in df.columns if col not in breakout_columns and col != 'Concept' and col != 'Respondent']
 
+    # Exclude dynamically the chosen "group" column from being used in the "Group" column
     def calculate_significance(data, group_column, attributes, method="ztest", bucket_values=None):
         result_rows = []
         pivot = None
@@ -201,6 +203,9 @@ if uploaded_file:
         group_labels_map = {group: f"{ascii_uppercase[i]}. {group}" for i, group in enumerate(data[group_column].dropna().unique())}
         final_df.columns = ["Attribute", "Group"] + [group_labels_map[g] for g in data[group_column].dropna().unique()]
         return final_df
+
+    # If the cell value is None, replace it with 0% in results
+    df.replace({None: "0%"}, inplace=True)
 
     method = "ztest" if test_design == "Independent Samples (default)" else "paired"
     df_results = build_output_df(df, group_column, attributes, method, bucket_values)
