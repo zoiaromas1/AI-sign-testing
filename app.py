@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.stats import norm, ttest_rel, ttest_ind
+from scipy.stats import norm, ttest_rel
 import re
 from string import ascii_uppercase
 import io
 
 # === CONFIG ===
-confidence_z_90 = 1.645  # 90% confidence
-confidence_z_80 = 0.84   # 80% confidence
+confidence_z_90 = 1.645  # 90% confidence (Z-score)
+confidence_z_80 = 0.84   # 80% confidence (Z-score)
 min_effect_size = 5      # Minimum effect size for significance in percentage terms
 
 # Streamlit page config
@@ -153,11 +153,6 @@ if uploaded_file:
                         if se == 0:
                             continue
                         z = (p1 - p2) / se
-                        
-                        # Apply minimum effect size threshold
-                        if abs(p1 - p2) < min_effect_size:
-                            continue
-
                         letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
                         if z > confidence_z_90:
                             better_than.append(letter)
@@ -180,7 +175,7 @@ if uploaded_file:
 
     def build_output_df(data, group_column, attributes, method, bucket_values=None):
         all_rows, attribute_labels, group_labels = [], [], []
-        
+
         # Calculate the total number of respondents across all concepts (sum of respondents)
         total_respondents = data['Respondent'].nunique()
 
