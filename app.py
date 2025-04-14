@@ -153,19 +153,17 @@ if uploaded_file:
                         if se == 0:
                             continue
                         z = (p1 - p2) / se
+                        letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
                         p_value = norm.cdf(-z)  # Using the z-statistic to calculate the p-value
                         if p_value < p_value_threshold:  # Using p-value threshold
-                            better_than.append(ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)])
-                        elif p_value >= p_value_threshold:
-                            better_than.append("NS")  # Non-significant
+                            better_than.append(letter)
                     else:
                         paired = pd.DataFrame({"c1": stats[group], "c2": stats[compare_group]}).dropna()
                         if len(paired) > 1:
                             t_stat, p_value = ttest_rel(paired['c1'], paired['c2'])
+                            letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
                             if p_value < p_value_threshold:
-                                better_than.append(ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)])
-                            else:
-                                better_than.append("NS")  # Non-significant
+                                better_than.append(letter)
 
                 label = f"{round(stats[group][0])}%" + (f" {', '.join(better_than)}" if better_than else "")
                 row_data[group] = label
