@@ -28,33 +28,6 @@ st.markdown("""
    After the file is uploaded, the analysis results will be shown and available for download.
 """)
 
-# === TEST DESIGN SELECTION ===
-test_design = st.selectbox(
-    "Choose your test design:",
-    options=[
-        "Independent Samples (default)",
-        "Paired Samples",
-        "Within-Subjects (Repeated Measures)",
-        "Multiple Groups (3+ concepts)"
-    ],
-    index=0,  # Default to the first option
-    help="Select the appropriate test design for your analysis"
-)
-
-# Ensure `test_design` is valid before proceeding
-if not test_design:
-    st.error("❌ Please select a valid test design.")
-    st.stop()
-
-# Define method based on the test design
-if test_design == "Independent Samples (default)":
-    method = "ztest"
-elif test_design in ["Paired Samples", "Within-Subjects (Repeated Measures)"]:
-    method = "paired"
-else:
-    # Handle other cases if necessary, like Multiple Groups
-    method = "ztest"  # Default method for multiple concepts
-
 # === TEMPLATE DOWNLOAD ===
 @st.cache_data
 def generate_template():
@@ -79,6 +52,44 @@ st.download_button(
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
+# === TEST DESIGN SELECTION ===
+test_design = st.selectbox(
+    "Choose your test design:",
+    options=[
+        "Independent Samples (default)",
+        "Paired Samples",
+        "Within-Subjects (Repeated Measures)",
+        "Multiple Groups (3+ concepts)"
+    ]
+)
+
+with st.expander("ℹ️ What does this mean?"):
+    explanations = {
+        "Independent Samples (default)": "**Use when:** different people rated each concept. **Test:** Z-test for comparing Top 2 Box %",
+        "Paired Samples": "**Use when:** same people rated multiple concepts. **Test:** Paired t-test on binary T2B scores (1 = Top 2 Box)",
+        "Within-Subjects (Repeated Measures)": "**Use when:** repeated evaluation by same person. **Test:** Paired t-test on binary scores",
+        "Multiple Groups (3+ concepts)": "**Use when:** more than 2 groups. **Test:** Paired t-test between concepts on binary data"
+    }
+    st.markdown(explanations[test_design])
+
+# === T1B / T2B CONTROLS ===
+use_t1b = st.checkbox("🔘 Use Top 1 Box", value=False)
+show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", value=True)
+
+if use_t1b:
+    t1_value = st.number_input("Enter value for Top 1 Box", min_value=0, max_value=100, value=5)
+    bucket_values = [t1_value]
+else:
+    t2b_1 = st.number_input("Enter first value for Top 2 Box", min_value=0, max_value=100, value=4)
+    t2b_2 = st.number_input("Enter second value for Top 2 Box", min_value=0, max_value=100, value=5)
+    bucket_values = [t2b_1, t2b_2]
+
+# Confidence Level
+if show_80_confidence:
+    confidence_z = confidence_z_80  # Default 80% confidence (small letters)
+else:
+    confidence_z = confidence_z_90  # Default 90% confidence (big letters)
+
 # === FILE UPLOAD ===
 uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
 
@@ -88,8 +99,8 @@ if uploaded_file:
 
     if 'ID' in df.columns:
         df = df.rename(columns={'ID': 'Respondent'})
-    else:
-        st.error("❌ Missing required 'ID' column.")
+    elif test_design != "Independent Samples (default)":
+        st.error("❌ Missing required 'ID' column for paired/within-subjects tests.")
         st.stop()
 
     # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns or Concept)
