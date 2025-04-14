@@ -9,7 +9,7 @@ import io
 # === CONFIG ===
 confidence_z_90 = 1.645  # 90% confidence
 confidence_z_80 = 0.84   # 80% confidence
-min_effect_size = 5      # Minimum effect size for significance in percentage terms
+min_effect_size = 10     # Minimum effect size for significance in percentage terms
 
 # Streamlit page config
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
