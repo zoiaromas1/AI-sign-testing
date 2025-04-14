@@ -28,6 +28,33 @@ st.markdown("""
    After the file is uploaded, the analysis results will be shown and available for download.
 """)
 
+# === TEST DESIGN SELECTION ===
+test_design = st.selectbox(
+    "Choose your test design:",
+    options=[
+        "Independent Samples (default)",
+        "Paired Samples",
+        "Within-Subjects (Repeated Measures)",
+        "Multiple Groups (3+ concepts)"
+    ],
+    index=0,  # Default to the first option
+    help="Select the appropriate test design for your analysis"
+)
+
+# Ensure `test_design` is valid before proceeding
+if not test_design:
+    st.error("❌ Please select a valid test design.")
+    st.stop()
+
+# Define method based on the test design
+if test_design == "Independent Samples (default)":
+    method = "ztest"
+elif test_design in ["Paired Samples", "Within-Subjects (Repeated Measures)"]:
+    method = "paired"
+else:
+    # Handle other cases if necessary, like Multiple Groups
+    method = "ztest"  # Default method for multiple concepts
+
 # === TEMPLATE DOWNLOAD ===
 @st.cache_data
 def generate_template():
