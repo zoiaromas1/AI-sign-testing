@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.stats import norm, ttest_rel
+from scipy.stats import norm, ttest_rel, fisher_exact
 import re
 from string import ascii_uppercase
 import io
@@ -9,6 +9,7 @@ import io
 # === CONFIG ===
 confidence_z_90 = 1.645
 confidence_z_80 = 0.84
+min_sample_size = 30  # Minimum sample size for robust significance testing
 
 # Streamlit page config
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
@@ -51,44 +52,6 @@ st.download_button(
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# === TEST DESIGN SELECTION ===
-test_design = st.selectbox(
-    "Choose your test design:",
-    options=[
-        "Independent Samples (default)",
-        "Paired Samples",
-        "Within-Subjects (Repeated Measures)",
-        "Multiple Groups (3+ concepts)"
-    ]
-)
-
-with st.expander("ℹ️ What does this mean?"):
-    explanations = {
-        "Independent Samples (default)": "**Use when:** different people rated each concept. **Test:** Z-test for comparing Top 2 Box %",
-        "Paired Samples": "**Use when:** same people rated multiple concepts. **Test:** Paired t-test on binary T2B scores (1 = Top 2 Box)",
-        "Within-Subjects (Repeated Measures)": "**Use when:** repeated evaluation by same person. **Test:** Paired t-test on binary scores",
-        "Multiple Groups (3+ concepts)": "**Use when:** more than 2 groups. **Test:** Paired t-test between concepts on binary data"
-    }
-    st.markdown(explanations[test_design])
-
-# === T1B / T2B CONTROLS ===
-use_t1b = st.checkbox("🔘 Use Top 1 Box", value=False)
-show_80_confidence = st.checkbox("Show 80% confidence (lowercase letters)", value=True)
-
-if use_t1b:
-    t1_value = st.number_input("Enter value for Top 1 Box", min_value=0, max_value=100, value=5)
-    bucket_values = [t1_value]
-else:
-    t2b_1 = st.number_input("Enter first value for Top 2 Box", min_value=0, max_value=100, value=4)
-    t2b_2 = st.number_input("Enter second value for Top 2 Box", min_value=0, max_value=100, value=5)
-    bucket_values = [t2b_1, t2b_2]
-
-# Confidence Level
-if show_80_confidence:
-    confidence_z = confidence_z_80  # Default 80% confidence (small letters)
-else:
-    confidence_z = confidence_z_90  # Default 90% confidence (big letters)
-
 # === FILE UPLOAD ===
 uploaded_file = st.file_uploader("📁 Upload your Excel file", type=["xlsx"])
 
@@ -98,8 +61,8 @@ if uploaded_file:
 
     if 'ID' in df.columns:
         df = df.rename(columns={'ID': 'Respondent'})
-    elif test_design != "Independent Samples (default)":
-        st.error("❌ Missing required 'ID' column for paired/within-subjects tests.")
+    else:
+        st.error("❌ Missing required 'ID' column.")
         st.stop()
 
     # Ask the user to choose the column to differentiate between groups (e.g., Breakout columns or Concept)
@@ -127,45 +90,46 @@ if uploaded_file:
             row_data = {}
             stats = {}
             for group in data[group_column].dropna().unique():
-                if method == "ztest":
-                    scores = data[data[group_column] == group][attr].dropna()
-                    base = len(scores)
-                    pct = scores.isin(bucket_values).sum() / base * 100 if base > 0 else np.nan
-                    stats[group] = (pct, base)
-                else:
-                    if group in pivot[attr]:
-                        stats[group] = pivot[attr][group]
-                    else:
-                        stats[group] = pd.Series(dtype=float)
+                scores = data[data[group_column] == group][attr].dropna()
+                n = len(scores)
+                pct = scores.isin(bucket_values).sum() / n * 100 if n > 0 else np.nan
+                p_hat = pct / 100  # Convert percentage to proportion
+                stats[group] = (pct, n)
 
             for group in data[group_column].dropna().unique():
                 better_than = []
                 for compare_group in data[group_column].dropna().unique():
                     if group == compare_group or group not in stats or compare_group not in stats:
                         continue
-                    if method == "ztest":
-                        p1, n1 = stats[group]
-                        p2, n2 = stats[compare_group]
-                        if n1 == 0 or n2 == 0:
-                            continue
-                        se = np.sqrt((p1 / 100 * (1 - p1 / 100) / n1) + (p2 / 100 * (1 - p2 / 100) / n2))
-                        if se == 0:
-                            continue
+
+                    p1, n1 = stats[group]
+                    p2, n2 = stats[compare_group]
+                    
+                    # Handle edge cases like zero sample sizes or very small sample sizes
+                    if n1 == 0 or n2 == 0:
+                        continue
+                    
+                    # Calculate the standard error for proportions
+                    se = np.sqrt((p1 / 100 * (1 - p1 / 100) / n1) + (p2 / 100 * (1 - p2 / 100) / n2))
+                    if se == 0:
+                        continue
+                    
+                    # Use Z-test if sample size is sufficiently large, otherwise use Fisher's exact test
+                    if n1 >= min_sample_size and n2 >= min_sample_size:
                         z = (p1 - p2) / se
-                        letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
-                        if z > confidence_z_90:
-                            better_than.append(letter)
-                        elif show_80_confidence and z > confidence_z_80:
-                            better_than.append(letter.lower())
-                    else:
-                        paired = pd.DataFrame({"c1": stats[group], "c2": stats[compare_group]}).dropna()
-                        if len(paired) > 1:
-                            t_stat, p_value = ttest_rel(paired['c1'], paired['c2'])
+                        critical_value = confidence_z_90 if show_80_confidence else confidence_z_80
+                        if z > critical_value:
                             letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
-                            if p_value < 0.1:
-                                better_than.append(letter.lower())
-                            if p_value < 0.05:
-                                better_than[-1] = letter
+                            better_than.append(letter)
+                    else:
+                        # Fisher's exact test for small sample sizes
+                        table = np.array([[np.sum(scores == bucket_values[0]), np.sum(scores != bucket_values[0])],
+                                          [np.sum(data[data[group_column] == compare_group][attr] == bucket_values[0]),
+                                           np.sum(data[data[group_column] == compare_group][attr] != bucket_values[0])]])
+                        _, p_value = fisher_exact(table)
+                        if p_value < 0.05:
+                            letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
+                            better_than.append(letter.lower())
 
                 label = f"{round(stats[group][0])}%" + (f" {', '.join(better_than)}" if better_than else "")
                 row_data[group] = label
