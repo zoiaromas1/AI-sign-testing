@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.stats import norm, ttest_rel, fisher_exact
+from scipy.stats import norm, ttest_rel
 import re
 from string import ascii_uppercase
 import io
@@ -9,7 +9,7 @@ import io
 # === CONFIG ===
 confidence_z_90 = 1.645
 confidence_z_80 = 0.84
-min_sample_size = 30  # Minimum sample size for robust significance testing
+p_value_threshold = 0.05  # Adjusted p-value threshold for significance
 
 # Streamlit page config
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
@@ -128,46 +128,42 @@ if uploaded_file:
             row_data = {}
             stats = {}
             for group in data[group_column].dropna().unique():
-                scores = data[data[group_column] == group][attr].dropna()
-                n = len(scores)
-                pct = scores.isin(bucket_values).sum() / n * 100 if n > 0 else np.nan
-                p_hat = pct / 100  # Convert percentage to proportion
-                stats[group] = (pct, n)
+                if method == "ztest":
+                    scores = data[data[group_column] == group][attr].dropna()
+                    base = len(scores)
+                    pct = scores.isin(bucket_values).sum() / base * 100 if base > 0 else np.nan
+                    stats[group] = (pct, base)
+                else:
+                    if group in pivot[attr]:
+                        stats[group] = pivot[attr][group]
+                    else:
+                        stats[group] = pd.Series(dtype=float)
 
             for group in data[group_column].dropna().unique():
                 better_than = []
                 for compare_group in data[group_column].dropna().unique():
                     if group == compare_group or group not in stats or compare_group not in stats:
                         continue
-
-                    p1, n1 = stats[group]
-                    p2, n2 = stats[compare_group]
-                    
-                    # Handle edge cases like zero sample sizes or very small sample sizes
-                    if n1 == 0 or n2 == 0:
-                        continue
-                    
-                    # Calculate the standard error for proportions
-                    se = np.sqrt((p1 / 100 * (1 - p1 / 100) / n1) + (p2 / 100 * (1 - p2 / 100) / n2))
-                    if se == 0:
-                        continue
-                    
-                    # Use Z-test if sample size is sufficiently large, otherwise use Fisher's exact test
-                    if n1 >= min_sample_size and n2 >= min_sample_size:
+                    if method == "ztest":
+                        p1, n1 = stats[group]
+                        p2, n2 = stats[compare_group]
+                        if n1 == 0 or n2 == 0:
+                            continue
+                        se = np.sqrt((p1 / 100 * (1 - p1 / 100) / n1) + (p2 / 100 * (1 - p2 / 100) / n2))
+                        if se == 0:
+                            continue
                         z = (p1 - p2) / se
-                        critical_value = confidence_z_90 if show_80_confidence else confidence_z_80
-                        if z > critical_value:
-                            letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
+                        letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
+                        p_value = norm.cdf(-z)  # Using the z-statistic to calculate the p-value
+                        if p_value < p_value_threshold:  # Using p-value threshold
                             better_than.append(letter)
                     else:
-                        # Fisher's exact test for small sample sizes
-                        table = np.array([[np.sum(scores == bucket_values[0]), np.sum(scores != bucket_values[0])],
-                                          [np.sum(data[data[group_column] == compare_group][attr] == bucket_values[0]),
-                                           np.sum(data[data[group_column] == compare_group][attr] != bucket_values[0])]])
-                        _, p_value = fisher_exact(table)
-                        if p_value < 0.05:
+                        paired = pd.DataFrame({"c1": stats[group], "c2": stats[compare_group]}).dropna()
+                        if len(paired) > 1:
+                            t_stat, p_value = ttest_rel(paired['c1'], paired['c2'])
                             letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
-                            better_than.append(letter.lower())
+                            if p_value < p_value_threshold:
+                                better_than.append(letter)
 
                 label = f"{round(stats[group][0])}%" + (f" {', '.join(better_than)}" if better_than else "")
                 row_data[group] = label
