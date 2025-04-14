@@ -7,8 +7,9 @@ from string import ascii_uppercase
 import io
 
 # === CONFIG ===
-confidence_z_90 = 1.645
-confidence_z_80 = 0.84
+confidence_z_90 = 1.645  # 90% confidence
+confidence_z_80 = 0.84   # 80% confidence
+min_effect_size = 5      # Minimum effect size for significance in percentage terms
 
 # Streamlit page config
 st.set_page_config(page_title="Significance Testing Tool", layout="wide")
@@ -152,6 +153,11 @@ if uploaded_file:
                         if se == 0:
                             continue
                         z = (p1 - p2) / se
+                        
+                        # Apply minimum effect size threshold
+                        if abs(p1 - p2) < min_effect_size:
+                            continue
+
                         letter = ascii_uppercase[data[group_column].dropna().unique().tolist().index(compare_group)]
                         if z > confidence_z_90:
                             better_than.append(letter)
