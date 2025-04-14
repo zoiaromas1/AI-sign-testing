@@ -7,8 +7,9 @@ from string import ascii_uppercase
 import io
 
 # === CONFIG ===
-confidence_z_90 = 1.645
-confidence_z_80 = 0.84
+confidence_z_90 = 1.96  # More stringent confidence (95% confidence)
+confidence_z_80 = 1.28  # More stringent confidence (90% confidence)
+
 p_value_threshold = 0.05  # Adjusted p-value threshold for significance
 
 # Streamlit page config
