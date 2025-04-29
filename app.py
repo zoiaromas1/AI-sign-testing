@@ -202,7 +202,7 @@ if uploaded_file:
                 group_df = data[data[breakout] == group_value]
                 group_rows = calculate_significance(group_df, group_column, attributes, method, bucket_values)
                 group_bases = [len(group_df[group_df[group_column] == group]) for group in data[group_column].dropna().unique()]
-                group_n = int(np.round(np.mean(group_bases)))
+                group_n = sum(group_bases)
                 for attr, row in zip(attributes, group_rows):
                     all_rows.append(row)
                     attribute_labels.append(attr)
